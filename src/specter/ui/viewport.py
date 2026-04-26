@@ -32,12 +32,14 @@ class AvatarViewport(QOpenGLWidget):
         self._face_landmarks: list | None = None
         self._hand_landmarks: list | None = None
         self._pose_landmarks: list | None = None
+        self._matches: list = []
         self.setMinimumSize(640, 480)
 
     def update_tracking(self, data: dict) -> None:
         self._face_landmarks = data.get("face")
         self._hand_landmarks = data.get("hands")
         self._pose_landmarks = data.get("pose")
+        self._matches = data.get("matches") or []
         self.update()
 
     def paintGL(self) -> None:
@@ -108,5 +110,22 @@ class AvatarViewport(QOpenGLWidget):
                     painter.setBrush(color)
                     painter.drawEllipse(x - r, y - r, r * 2, r * 2)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Recognition boxes — InsightFace coords are raw camera pixels (640x480)
+        if self._matches:
+            cam_w, cam_h = 640, 480
+            sx, sy = w / cam_w, h / cam_h
+            for match in self._matches:
+                x1, y1, x2, y2 = match.bbox
+                rx1 = w - int(x2 * sx)
+                rx2 = w - int(x1 * sx)
+                ry1, ry2 = int(y1 * sy), int(y2 * sy)
+                is_known = match.name != "Неизвестно"
+                box_color = QColor(80, 255, 120) if is_known else QColor(255, 80, 80)
+                painter.setPen(QPen(box_color, 2))
+                painter.drawRect(rx1, ry1, rx2 - rx1, ry2 - ry1)
+                painter.setFont(QFont("Sans", 11, QFont.Weight.Bold))
+                painter.setPen(box_color)
+                painter.drawText(rx1, max(ry1 - 6, 14), f"{match.name}  {match.score:.2f}")
 
         painter.end()

@@ -1,5 +1,9 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QComboBox, QPushButton, QSplitter
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
+    QComboBox, QPushButton, QSplitter, QLineEdit, QListWidget,
+    QGroupBox, QMessageBox,
+)
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPixmap
 from specter.tracking.camera import CameraThread
 from specter.ui.viewport import AvatarViewport
@@ -10,8 +14,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Specter")
         self.resize(1280, 720)
-
         self._camera_thread: CameraThread | None = None
+        self._recognizer = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -23,21 +27,21 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         root.addWidget(splitter)
 
-        # Left: avatar viewport
         self.viewport = AvatarViewport()
         splitter.addWidget(self.viewport)
 
-        # Right: camera preview + controls
         right = QWidget()
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(4, 4, 4, 4)
 
+        # Camera preview
         self.camera_label = QLabel("Камера не запущена")
         self.camera_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.camera_label.setMinimumSize(320, 240)
         self.camera_label.setStyleSheet("background: #111; color: #555;")
         right_layout.addWidget(self.camera_label)
 
+        # Camera selector
         cam_row = QHBoxLayout()
         cam_row.addWidget(QLabel("Камера:"))
         self.cam_selector = QComboBox()
@@ -49,6 +53,29 @@ class MainWindow(QMainWindow):
         self.btn_camera.clicked.connect(self._toggle_camera)
         right_layout.addWidget(self.btn_camera)
 
+        # Recognition panel
+        rec_group = QGroupBox("Распознавание лиц")
+        rec_layout = QVBoxLayout(rec_group)
+
+        name_row = QHBoxLayout()
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Имя")
+        name_row.addWidget(self.name_input)
+        btn_enroll = QPushButton("Запомнить")
+        btn_enroll.clicked.connect(self._enroll_face)
+        name_row.addWidget(btn_enroll)
+        rec_layout.addLayout(name_row)
+
+        self.enrolled_list = QListWidget()
+        self.enrolled_list.setMaximumHeight(100)
+        rec_layout.addWidget(self.enrolled_list)
+
+        btn_delete = QPushButton("Удалить выбранное")
+        btn_delete.clicked.connect(self._delete_face)
+        rec_layout.addWidget(btn_delete)
+
+        right_layout.addWidget(rec_group)
+
         self.status_label = QLabel("Готово")
         right_layout.addWidget(self.status_label)
         right_layout.addStretch()
@@ -57,13 +84,12 @@ class MainWindow(QMainWindow):
         splitter.setSizes([820, 460])
 
     def _populate_cameras(self) -> None:
-        import subprocess, re
+        import subprocess
         self.cam_selector.clear()
         try:
             out = subprocess.check_output(["v4l2-ctl", "--list-devices"], text=True, stderr=subprocess.DEVNULL)
         except Exception:
             out = ""
-
         current_name = ""
         for line in out.splitlines():
             stripped = line.strip()
@@ -89,12 +115,19 @@ class MainWindow(QMainWindow):
         from specter.tracking.face import FaceTracker
         from specter.tracking.hands import HandTracker
         from specter.tracking.pose import PoseTracker
+        from specter.tracking.recognition import FaceRecognizer
+
+        if self._recognizer is None:
+            self.status_label.setText("Загрузка модели распознавания...")
+            self._recognizer = FaceRecognizer()
+            self._refresh_enrolled_list()
 
         self._camera_thread = CameraThread(
             camera_index=cam_device,
             face_tracker=FaceTracker(),
             hand_tracker=HandTracker(),
             pose_tracker=PoseTracker(),
+            recognizer=self._recognizer,
         )
         self._camera_thread.frame_ready.connect(self._on_frame)
         self._camera_thread.tracking_ready.connect(self.viewport.update_tracking)
@@ -118,6 +151,38 @@ class MainWindow(QMainWindow):
             Qt.TransformationMode.SmoothTransformation,
         )
         self.camera_label.setPixmap(pixmap)
+
+    def _enroll_face(self) -> None:
+        name = self.name_input.text().strip()
+        if not name:
+            self.status_label.setText("Введи имя")
+            return
+        if self._recognizer is None or self._camera_thread is None:
+            self.status_label.setText("Сначала запусти камеру")
+            return
+        frame = self._camera_thread.last_bgr_frame()
+        if frame is None:
+            self.status_label.setText("Нет кадра")
+            return
+        msg = self._recognizer.enroll(name, frame)
+        self.status_label.setText(msg)
+        self._refresh_enrolled_list()
+        self.name_input.clear()
+
+    def _delete_face(self) -> None:
+        item = self.enrolled_list.currentItem()
+        if not item or self._recognizer is None:
+            return
+        name = item.text()
+        self._recognizer.delete(name)
+        self._refresh_enrolled_list()
+        self.status_label.setText(f"Удалено: {name}")
+
+    def _refresh_enrolled_list(self) -> None:
+        self.enrolled_list.clear()
+        if self._recognizer:
+            for name in self._recognizer.enrolled_names():
+                self.enrolled_list.addItem(name)
 
     def closeEvent(self, event) -> None:
         self._stop_camera()
