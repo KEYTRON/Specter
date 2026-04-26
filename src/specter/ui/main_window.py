@@ -57,13 +57,22 @@ class MainWindow(QMainWindow):
         splitter.setSizes([820, 460])
 
     def _populate_cameras(self) -> None:
-        import cv2
+        import subprocess, re
         self.cam_selector.clear()
-        for i in range(8):
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                self.cam_selector.addItem(f"/dev/video{i}", i)
-                cap.release()
+        try:
+            out = subprocess.check_output(["v4l2-ctl", "--list-devices"], text=True, stderr=subprocess.DEVNULL)
+        except Exception:
+            out = ""
+
+        current_name = ""
+        for line in out.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("/dev/video"):
+                current_name = stripped.rstrip(":")
+            else:
+                dev = stripped
+                label = f"{current_name} ({dev})" if current_name else dev
+                self.cam_selector.addItem(label, dev)
 
     def _toggle_camera(self) -> None:
         if self._camera_thread and self._camera_thread.isRunning():
@@ -72,8 +81,8 @@ class MainWindow(QMainWindow):
             self._start_camera()
 
     def _start_camera(self) -> None:
-        cam_index = self.cam_selector.currentData()
-        if cam_index is None:
+        cam_device = self.cam_selector.currentData()
+        if cam_device is None:
             self.status_label.setText("Камера не найдена")
             return
 
@@ -81,7 +90,7 @@ class MainWindow(QMainWindow):
         from specter.tracking.hands import HandTracker
 
         self._camera_thread = CameraThread(
-            camera_index=cam_index,
+            camera_index=cam_device,
             face_tracker=FaceTracker(),
             hand_tracker=HandTracker(),
         )

@@ -1,24 +1,29 @@
 from __future__ import annotations
 import numpy as np
+from specter.tracking.models import ensure
 
 
 class FaceTracker:
     def __init__(self) -> None:
         import mediapipe as mp
-        self._mp_face = mp.solutions.face_mesh
-        self._tracker = self._mp_face.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,  # enables iris + lips detail
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
+        from mediapipe.tasks.python import BaseOptions
+        from mediapipe.tasks.python.vision import FaceLandmarker, FaceLandmarkerOptions, RunningMode
+
+        model_path = ensure("face_landmarker.task")
+        options = FaceLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=str(model_path)),
+            running_mode=RunningMode.IMAGE,
+            num_faces=1,
         )
+        self._detector = FaceLandmarker.create_from_options(options)
 
     def process(self, rgb_frame: np.ndarray) -> list[tuple[float, float, float]] | None:
-        result = self._tracker.process(rgb_frame)
-        if not result.multi_face_landmarks:
+        import mediapipe as mp
+        image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        result = self._detector.detect(image)
+        if not result.face_landmarks:
             return None
-        lms = result.multi_face_landmarks[0].landmark
-        return [(lm.x, lm.y, lm.z) for lm in lms]
+        return [(lm.x, lm.y, lm.z) for lm in result.face_landmarks[0]]
 
     def close(self) -> None:
-        self._tracker.close()
+        self._detector.close()
