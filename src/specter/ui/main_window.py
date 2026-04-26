@@ -88,11 +88,13 @@ class MainWindow(QMainWindow):
 
         from specter.tracking.face import FaceTracker
         from specter.tracking.hands import HandTracker
+        from specter.tracking.pose import PoseTracker
 
         self._camera_thread = CameraThread(
             camera_index=cam_device,
             face_tracker=FaceTracker(),
             hand_tracker=HandTracker(),
+            pose_tracker=PoseTracker(),
         )
         self._camera_thread.frame_ready.connect(self._on_frame)
         self._camera_thread.tracking_ready.connect(self.viewport.update_tracking)

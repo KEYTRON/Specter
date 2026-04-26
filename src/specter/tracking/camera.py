@@ -8,11 +8,12 @@ class CameraThread(QThread):
     frame_ready = pyqtSignal(QImage)
     tracking_ready = pyqtSignal(dict)
 
-    def __init__(self, camera_index: int, face_tracker, hand_tracker) -> None:
+    def __init__(self, camera_index: str, face_tracker, hand_tracker, pose_tracker) -> None:
         super().__init__()
         self._camera_index = camera_index
         self._face_tracker = face_tracker
         self._hand_tracker = hand_tracker
+        self._pose_tracker = pose_tracker
         self._running = False
 
     def run(self) -> None:
@@ -31,13 +32,8 @@ class CameraThread(QThread):
 
             face = self._face_tracker.process(rgb)
             hands = self._hand_tracker.process(rgb)
-            self.tracking_ready.emit({"face": face, "hands": hands})
-
-            # Annotate preview frame
-            if face:
-                h, w = frame.shape[:2]
-                for lm in face:
-                    cv2.circle(frame, (int(lm[0] * w), int(lm[1] * h)), 1, (100, 200, 255), -1)
+            pose = self._pose_tracker.process(rgb)
+            self.tracking_ready.emit({"face": face, "hands": hands, "pose": pose})
 
             h, w, ch = frame.shape
             qt_image = QImage(frame.data, w, h, ch * w, QImage.Format.Format_BGR888)

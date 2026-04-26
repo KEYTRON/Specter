@@ -14,6 +14,9 @@ class FaceTracker:
             base_options=BaseOptions(model_asset_path=str(model_path)),
             running_mode=RunningMode.IMAGE,
             num_faces=1,
+            min_face_detection_confidence=0.7,
+            min_face_presence_confidence=0.7,
+            min_tracking_confidence=0.6,
         )
         self._detector = FaceLandmarker.create_from_options(options)
 
