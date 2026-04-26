@@ -19,10 +19,22 @@ class FaceRecognizer:
         import onnxruntime as ort
         from insightface.app import FaceAnalysis
         available = ort.get_available_providers()
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in available else ["CPUExecutionProvider"]
-        print(f"[specter/recognition] providers: {providers}")
-        self._app = FaceAnalysis(providers=providers)
+        if "CUDAExecutionProvider" in available:
+            try:
+                self._app = FaceAnalysis(providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+                self._app.prepare(ctx_id=0, det_size=(320, 320))
+                # smoke test — detect on blank frame to verify cuDNN works
+                import numpy as np
+                self._app.get(np.zeros((64, 64, 3), dtype=np.uint8))
+                print("[specter/recognition] CUDA OK")
+                return
+            except Exception as e:
+                print(f"[specter/recognition] CUDA failed ({e}), falling back to CPU")
+                self._app = None
+        from insightface.app import FaceAnalysis as FA
+        self._app = FA(providers=["CPUExecutionProvider"])
         self._app.prepare(ctx_id=0, det_size=(320, 320))
+        print("[specter/recognition] CPU")
         self._names: list[str] = []
         self._embeddings: np.ndarray = np.empty((0, 512), dtype=np.float32)
         self._load_db()
@@ -53,7 +65,11 @@ class FaceRecognizer:
     # --- identify --------------------------------------------------------------
 
     def identify(self, bgr_frame: np.ndarray) -> list[FaceMatch]:
-        faces = self._app.get(bgr_frame)
+        try:
+            faces = self._app.get(bgr_frame)
+        except Exception as e:
+            print(f"[specter/recognition] inference error: {e}")
+            return []
         if not faces or self._embeddings.shape[0] == 0:
             return []
         results = []
