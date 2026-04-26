@@ -19,12 +19,7 @@ class FaceRecognizer:
         import onnxruntime as ort
         from insightface.app import FaceAnalysis
         available = ort.get_available_providers()
-        if "TensorrtExecutionProvider" in available:
-            providers = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
-        elif "CUDAExecutionProvider" in available:
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        else:
-            providers = ["CPUExecutionProvider"]
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in available else ["CPUExecutionProvider"]
         print(f"[specter/recognition] providers: {providers}")
         self._app = FaceAnalysis(providers=providers)
         self._app.prepare(ctx_id=0, det_size=(320, 320))

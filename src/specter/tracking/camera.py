@@ -1,17 +1,22 @@
 import queue
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, Future
 import cv2
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage
 
-# Run pose every N frames, recognition every M frames
-_POSE_EVERY = 2
-_REC_EVERY = 3
+_POSE_EVERY = 2   # run pose every N frames
+_REC_EVERY = 3    # run recognition every N frames
 
 
 class TrackingWorker(threading.Thread):
+    """
+    MediaPipe models (face/hands/pose) run sequentially — they share C++ global
+    state and are not thread-safe.  InsightFace (ONNX Runtime) is thread-safe
+    and runs concurrently in a separate executor thread.
+    """
+
     def __init__(self, face_tracker, hand_tracker, pose_tracker, recognizer, on_result):
         super().__init__(daemon=True)
         self._face = face_tracker
@@ -21,9 +26,9 @@ class TrackingWorker(threading.Thread):
         self._on_result = on_result
         self._queue: queue.Queue = queue.Queue(maxsize=1)
         self._running = True
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        self._rec_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rec")
+        self._rec_future: Future | None = None
         self._frame = 0
-        # cached results for skipped frames
         self._last_pose = None
         self._last_matches: list = []
 
@@ -41,37 +46,39 @@ class TrackingWorker(threading.Thread):
                 continue
 
             self._frame += 1
-            run_pose = self._frame % _POSE_EVERY == 0
-            run_rec = self._frame % _REC_EVERY == 0
 
-            # Submit all active models in parallel
-            futures = {
-                "face": self._executor.submit(self._face.process, rgb),
-                "hands": self._executor.submit(self._hands.process, rgb),
-            }
-            if run_pose:
-                futures["pose"] = self._executor.submit(self._pose.process, rgb)
-            if run_rec and self._recognizer:
-                futures["matches"] = self._executor.submit(self._recognizer.identify, bgr)
+            # MediaPipe: sequential, single-threaded
+            face = self._face.process(rgb)
+            hands = self._hands.process(rgb)
 
-            result = {k: f.result() for k, f in futures.items()}
+            if self._frame % _POSE_EVERY == 0:
+                self._last_pose = self._pose.process(rgb)
 
-            # Carry forward cached values for skipped frames
-            if "pose" not in result:
-                result["pose"] = self._last_pose
-            else:
-                self._last_pose = result["pose"]
+            # InsightFace: fire-and-forget in GPU thread, collect previous result
+            if self._recognizer and self._frame % _REC_EVERY == 0:
+                if self._rec_future is None or self._rec_future.done():
+                    bgr_copy = bgr.copy()
+                    self._rec_future = self._rec_executor.submit(
+                        self._recognizer.identify, bgr_copy
+                    )
 
-            if "matches" not in result:
-                result["matches"] = self._last_matches
-            else:
-                self._last_matches = result["matches"]
+            if self._rec_future is not None and self._rec_future.done():
+                try:
+                    self._last_matches = self._rec_future.result()
+                except Exception:
+                    self._last_matches = []
+                self._rec_future = None
 
-            self._on_result(result)
+            self._on_result({
+                "face": face,
+                "hands": hands,
+                "pose": self._last_pose,
+                "matches": self._last_matches,
+            })
 
     def stop(self) -> None:
         self._running = False
-        self._executor.shutdown(wait=False)
+        self._rec_executor.shutdown(wait=False)
 
 
 class CameraThread(QThread):

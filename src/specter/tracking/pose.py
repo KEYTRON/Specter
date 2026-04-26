@@ -22,21 +22,15 @@ class PoseTracker:
         from mediapipe.tasks.python.vision import PoseLandmarker, PoseLandmarkerOptions, RunningMode
 
         model_path = ensure("pose_landmarker_full.task")
-        for delegate in (BaseOptions.Delegate.GPU, BaseOptions.Delegate.CPU):
-            try:
-                options = PoseLandmarkerOptions(
-                    base_options=BaseOptions(model_asset_path=str(model_path), delegate=delegate),
-                    running_mode=RunningMode.IMAGE,
-                    num_poses=1,
-                    min_pose_detection_confidence=0.6,
-                    min_pose_presence_confidence=0.6,
-                    min_tracking_confidence=0.5,
-                )
-                self._detector = PoseLandmarker.create_from_options(options)
-                print(f"[specter/pose] {delegate.name}")
-                break
-            except Exception:
-                continue
+        options = PoseLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=str(model_path)),
+            running_mode=RunningMode.IMAGE,
+            num_poses=1,
+            min_pose_detection_confidence=0.6,
+            min_pose_presence_confidence=0.6,
+            min_tracking_confidence=0.5,
+        )
+        self._detector = PoseLandmarker.create_from_options(options)
 
     def process(self, rgb_frame: np.ndarray) -> list[tuple[float, float, float]] | None:
         import mediapipe as mp
