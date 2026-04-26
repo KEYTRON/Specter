@@ -18,7 +18,7 @@ class FaceRecognizer:
     def __init__(self) -> None:
         from insightface.app import FaceAnalysis
         self._app = FaceAnalysis(providers=["CPUExecutionProvider"])
-        self._app.prepare(ctx_id=0, det_size=(640, 480))
+        self._app.prepare(ctx_id=0, det_size=(320, 320))
         self._names: list[str] = []
         self._embeddings: np.ndarray = np.empty((0, 512), dtype=np.float32)
         self._load_db()

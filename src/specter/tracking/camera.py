@@ -1,9 +1,14 @@
 import queue
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import cv2
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage
+
+# Run pose every N frames, recognition every M frames
+_POSE_EVERY = 2
+_REC_EVERY = 3
 
 
 class TrackingWorker(threading.Thread):
@@ -16,6 +21,11 @@ class TrackingWorker(threading.Thread):
         self._on_result = on_result
         self._queue: queue.Queue = queue.Queue(maxsize=1)
         self._running = True
+        self._executor = ThreadPoolExecutor(max_workers=4)
+        self._frame = 0
+        # cached results for skipped frames
+        self._last_pose = None
+        self._last_matches: list = []
 
     def submit(self, rgb: np.ndarray, bgr: np.ndarray) -> None:
         try:
@@ -29,16 +39,39 @@ class TrackingWorker(threading.Thread):
                 rgb, bgr = self._queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-            result = {
-                "face": self._face.process(rgb),
-                "hands": self._hands.process(rgb),
-                "pose": self._pose.process(rgb),
-                "matches": self._recognizer.identify(bgr) if self._recognizer else [],
+
+            self._frame += 1
+            run_pose = self._frame % _POSE_EVERY == 0
+            run_rec = self._frame % _REC_EVERY == 0
+
+            # Submit all active models in parallel
+            futures = {
+                "face": self._executor.submit(self._face.process, rgb),
+                "hands": self._executor.submit(self._hands.process, rgb),
             }
+            if run_pose:
+                futures["pose"] = self._executor.submit(self._pose.process, rgb)
+            if run_rec and self._recognizer:
+                futures["matches"] = self._executor.submit(self._recognizer.identify, bgr)
+
+            result = {k: f.result() for k, f in futures.items()}
+
+            # Carry forward cached values for skipped frames
+            if "pose" not in result:
+                result["pose"] = self._last_pose
+            else:
+                self._last_pose = result["pose"]
+
+            if "matches" not in result:
+                result["matches"] = self._last_matches
+            else:
+                self._last_matches = result["matches"]
+
             self._on_result(result)
 
     def stop(self) -> None:
         self._running = False
+        self._executor.shutdown(wait=False)
 
 
 class CameraThread(QThread):
