@@ -10,12 +10,18 @@ class HandTracker:
         from mediapipe.tasks.python.vision import HandLandmarker, HandLandmarkerOptions, RunningMode
 
         model_path = ensure("hand_landmarker.task")
-        options = HandLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=str(model_path)),
-            running_mode=RunningMode.IMAGE,
-            num_hands=2,
-        )
-        self._detector = HandLandmarker.create_from_options(options)
+        for delegate in (BaseOptions.Delegate.GPU, BaseOptions.Delegate.CPU):
+            try:
+                options = HandLandmarkerOptions(
+                    base_options=BaseOptions(model_asset_path=str(model_path), delegate=delegate),
+                    running_mode=RunningMode.IMAGE,
+                    num_hands=2,
+                )
+                self._detector = HandLandmarker.create_from_options(options)
+                print(f"[specter/hands] {delegate.name}")
+                break
+            except Exception:
+                continue
 
     def process(self, rgb_frame: np.ndarray) -> list[list[tuple[float, float, float]]] | None:
         import mediapipe as mp
@@ -23,10 +29,7 @@ class HandTracker:
         result = self._detector.detect(image)
         if not result.hand_landmarks:
             return None
-        return [
-            [(lm.x, lm.y, lm.z) for lm in hand]
-            for hand in result.hand_landmarks
-        ]
+        return [[(lm.x, lm.y, lm.z) for lm in hand] for hand in result.hand_landmarks]
 
     def close(self) -> None:
         self._detector.close()

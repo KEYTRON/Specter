@@ -16,8 +16,12 @@ class FaceMatch:
 
 class FaceRecognizer:
     def __init__(self) -> None:
+        import onnxruntime as ort
         from insightface.app import FaceAnalysis
-        self._app = FaceAnalysis(providers=["CPUExecutionProvider"])
+        available = ort.get_available_providers()
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in available else ["CPUExecutionProvider"]
+        print(f"[specter/recognition] providers: {providers}")
+        self._app = FaceAnalysis(providers=providers)
         self._app.prepare(ctx_id=0, det_size=(320, 320))
         self._names: list[str] = []
         self._embeddings: np.ndarray = np.empty((0, 512), dtype=np.float32)

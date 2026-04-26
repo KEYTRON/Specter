@@ -1,4 +1,7 @@
 import sys
+from specter.cuda import preload
+preload()
+
 from PyQt6.QtWidgets import QApplication
 from specter.ui.main_window import MainWindow
 
