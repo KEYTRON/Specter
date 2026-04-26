@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "specter"
+version = "0.1.0"
+description = "Native VTuber application with face & hand tracking"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.6",
+    "opencv-python>=4.8",
+    "numpy>=1.26",
+    "mediapipe>=0.10",
+    "moderngl>=5.10",
+    "PyOpenGL>=3.1",
+]
+
+[project.scripts]
+specter = "specter.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/specter"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
