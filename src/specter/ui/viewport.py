@@ -56,7 +56,7 @@ class AvatarViewport(QOpenGLWidget):
             return
 
         def px(lm):
-            return int(lm[0] * w), int(lm[1] * h)
+            return w - int(lm[0] * w), int(lm[1] * h)
 
         # Body skeleton
         if self._pose_landmarks:
